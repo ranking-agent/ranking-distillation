@@ -14,20 +14,21 @@ load_dotenv("/home/npersson/.env")
 
 # --- CONFIGURATION ---
 MODEL_NAME = "gemini-2.5-pro"
-NUM_RUNS = 1
-BATCH_SIZE = 50
-DOWNSAMPLE_FACTOR = 10 # Total batches will be divided by this number before submission. Set to 1 for all.
-STRATIFIED_BATCHES_PER_RUN = 50
+NUM_RUNS = 3
+BATCH_SIZE = 100
+DOWNSAMPLE_FACTOR = 1 # Total batches will be divided by this number before submission. Set to 1 for all.
+STRATIFIED_BATCHES_PER_RUN = 5
 GROUP_BY_COL = "categories" 
 JSONL_FILENAME = "batch_requests.jsonl"
 SLEEP_INTERVAL = 60 # Frequency (in seconds) to poll for job status and print
+RANDOM_SEED = 45
 
 CONTEXT = """
-I'm working on a module called "pathfinder" for NIH biomedical data Translator. Translator is backed by a knowledge graph assembled from NIH data sources, primarily linking drugs, genes and diseases. Pathfinder is a UI feature where the user specifies two endpoints (drug, disease, gene, etc.), and it's supposed to surface the "most interesting" (to a medical researcher) paths between the two.      
+I'm working on a module called "pathfinder" for NIH biomedical data Translator. Translator is backed by a knowledge graph assembled from NIH data sources, primarily linking drugs, genes and diseases. Pathfinder is a UI feature where the user specifies two endpoints (drug, disease, gene, etc.), and it's supposed to surface the most interesting or insightful (to a medical researcher) paths between the two.      
 
 Here is a batch of results linking two nodes. Each result has a unique "index". 
 
-Rank these in terms of their level of novelty / "interestingness" (as opposed to being obvious, trivial, etc.) and generate a brief explanation of the ranking. 
+Rank these in terms of their level of novelty / insight (as opposed to being obvious, trivial, etc.) and generate a brief explanation of the ranking. 
 """
 
 # Define the Schema for Structured Output
@@ -82,20 +83,22 @@ def main():
     client = genai.Client(api_key=api_key)
     
     # 2. Load Data
-    TEST_SET_DIR = Path("/mnt/nas0_data0/projects/translator/users/npersson/pathfinder_test_sets/")
+    TEST_SET_DIR = Path("/mnt/nas0_data1/projects/translator/users/npersson/pathfinder_test_sets/")
     # Fallback for local testing if path doesn't exist
     if not TEST_SET_DIR.exists():
         print(f"Directory {TEST_SET_DIR} not found. checking current directory.")
         TEST_SET_DIR = Path(".")
 
-    test_csvs = list(TEST_SET_DIR.glob("*.csv"))
-    
-    if not test_csvs:
-        print("No CSV files found.")
-        return
+    QUERIES_DIR = TEST_SET_DIR / "rare_disease_queries"
+    test_csvs = [
+        "MONDO_0010130_to_NCBIGene_1806_3_hop_w_direction_paths.csv",
+        "MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths.csv",
+        "MONDO_0008692_to_NCBIGene_4547_3_hop_w_direction_paths.csv",
+    ]
+    # test_csvs = list(QUERIES_DIR.glob("*.csv"))
 
     # Using the same index as original script, ensure files exist
-    pth = test_csvs[0] if len(test_csvs) == 1 else test_csvs[2 if len(test_csvs) > 2 else 0]
+    pth = QUERIES_DIR / test_csvs[0]
     print(f"Loading data from: {pth}")
     df = pd.read_csv(pth, sep="\t")
     
@@ -124,7 +127,7 @@ def main():
                     print(f"Skipping stratified batch (possibly not enough data): {e}")
         
         # B. SIMPLE SHUFFLE
-        df_shuffled = df.sample(frac=1, random_state=42 + run_i).reset_index(drop=True)
+        df_shuffled = df.sample(frac=1, random_state=(RANDOM_SEED + run_i)).reset_index(drop=True)
         total_rows = len(df_shuffled)
         stop_row = total_rows // DOWNSAMPLE_FACTOR
         # Create chunks
@@ -138,6 +141,16 @@ def main():
             batch_entries.append(entry)
 
     print(f"Generated {len(batch_entries)} total batch requests.")
+
+    ### PROMPT USER BEFORE SUBMITTING ###
+    user_choice = input(
+        f"\nAre you sure you want to submit "
+        f"{len(batch_entries)} batches)? (y/n): "
+    )
+    if user_choice.lower().strip() == "y":
+        pass
+    elif user_choice.lower().strip() != "y":
+        raise KeyboardInterrupt("Decided not to cache")
 
     # 5. Write to JSONL
     print(f"Writing requests to {JSONL_FILENAME}...")
@@ -208,7 +221,7 @@ def main():
         
         # MEMORY SAFEGUARD: Write bytes to disk immediately instead of loading string into RAM
         # This prevents OOM errors on large batch results
-        raw_results_path = TEST_SET_DIR / f"raw_results_{job_name.split('/')[-1]}.jsonl"
+        raw_results_path = TEST_SET_DIR / "gemini_batch_outputs" / f"raw_results_{job_name.split('/')[-1]}.jsonl"
         print(f"Writing raw results to: {raw_results_path}")
         
         with open(raw_results_path, "wb") as f:

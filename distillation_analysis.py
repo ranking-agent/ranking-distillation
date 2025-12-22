@@ -8,28 +8,71 @@ import matplotlib.pyplot as plt
 
 
 # %%
-TEST_SETS_DIR = Path("/mnt/nas0_data0/projects/translator/users/npersson/pathfinder_test_sets/")
+# Base NAS dir
+TEST_SETS_DIR = Path("/mnt/nas0_data1/projects/translator/users/npersson/pathfinder_test_sets/")
+
+# Original results from Neo4j
+ORIG_QUERIES_DIR = TEST_SETS_DIR / "rare_disease_queries"
+test_csvs = list(ORIG_QUERIES_DIR.glob("*.csv"))
+print("Raw query results files:")
+print(*test_csvs, sep="\n")
+
+# Results from Gemini
 RESULTS_DIR = TEST_SETS_DIR / "ranked_results"
-test_csvs = list(TEST_SETS_DIR.glob("*.csv"))
 ranking_outputs = list(RESULTS_DIR.glob("*.parquet"))
+print("\nRanked outputs avaialble:")
 print(*ranking_outputs, sep="\n")
-selected_results = ranking_outputs[-1]
+
+# Pick a specific job result file
+job_file = Path("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_ddid0rt60yoomydk794iu6abjq30964z8x0k.parquet")
+selected_results = RESULTS_DIR / job_file
 print("\nSelected:", selected_results.name)
+
 orig_dataset = [pp for pp in test_csvs if str(pp.name)[:25] == str(selected_results.name)[:25]][0]
 print("\nMatched original dataset:", orig_dataset)
 
 
 # %%
+# Read in original query results
 df_orig = pd.read_csv(orig_dataset, sep="\t")
+df_orig = df_orig.reset_index(names="query_index")
 
+# Read in ranking job results
 df = pd.read_parquet(selected_results, engine="fastparquet")
-df['rank_frac'] = df.groupby("job_id")["rank"].transform(lambda x: 1 - x / x.max())
+df['reciprocal_rank'] = df.groupby("job_id")["rank"].transform(lambda x: x / x.max())
+df = df.rename(columns={"index": "orig_query_index"})
 df.sample(8)
 
 
 # %%
+# Group by original result and aggregate reciprocal rank (basically, generate mean reciprocal rank)
+df_mrr = df.groupby('orig_query_index')['reciprocal_rank'].agg(['mean', 'median', 'min', 'max']).reset_index().sort_values("median")
+df_mrr = df_mrr.join(df_orig, on="orig_query_index")
+mrr_disp_cols = [
+    "orig_query_index",
+    "path",
+    "categories",
+    "median",
+    "metapaths",
+]
+df_mrr[mrr_disp_cols].head(20)
+# df_mrr.to_csv(RESULTS_DIR / )
+
+# %%
+# Pull all job results for a given original query result
+result_disp_cols = [
+    "orig_query_index",
+    "path",
+    "rank",
+    "explanation"
+]
+one_result_set = df[df['orig_query_index']==df_mrr['orig_query_index'].iloc[2]][result_disp_cols]
+print(*one_result_set['explanation'], sep="\n")
+
+
+# %%
 cat_counts = df_orig['categories'].value_counts(normalize=True)
-df_cats = df.groupby("categories")['rank'].agg(["median", "min", "max"]).reset_index().sort_values("median")
+df_cats = df_mrr.groupby("categories")['median'].agg(["median", "min", "max"]).reset_index().sort_values("median")
 df_cats['weight'] = df['categories'].apply(lambda cc: np.round(cat_counts.loc[cc]*100, 3))
 df_cats = df_cats.set_index('categories')
 sorted_categories = df_cats.index
@@ -38,7 +81,7 @@ df = df.sort_values('categories')
 
 
 # %%
-df_cats.head(8)
+df_cats.head(20)
 
 
 # %%
