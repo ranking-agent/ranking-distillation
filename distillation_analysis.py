@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from query_compression import convert_results_to_sentences
 
 
 # %%
@@ -24,7 +25,10 @@ print("\nRanked outputs avaialble:")
 print(*ranking_outputs, sep="\n")
 
 # Pick a specific job result file
-job_file = Path("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_ddid0rt60yoomydk794iu6abjq30964z8x0k.parquet")
+# job_file = Path("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_ddid0rt60yoomydk794iu6abjq30964z8x0k.parquet")
+# job_file = Path("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_grpuxy6whxotvg6e66q53a9lo421c8cv3nqd.parquet")
+# job_file = Path ("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_dsc62t5ssgwfd9cm8hhw1eoiyl9t95m3zaur.parquet")
+job_file = Path ("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_qzrhp409uijfk9pjbinttf9xklenchbi57fd.parquet")
 selected_results = RESULTS_DIR / job_file
 print("\nSelected:", selected_results.name)
 
@@ -35,7 +39,8 @@ print("\nMatched original dataset:", orig_dataset)
 # %%
 # Read in original query results
 df_orig = pd.read_csv(orig_dataset, sep="\t")
-df_orig = df_orig.reset_index(names="query_index")
+df_orig = df_orig.reset_index(names="orig_query_index")
+df_orig = convert_results_to_sentences(df_orig).set_index("orig_query_index", drop=True)
 
 # Read in ranking job results
 df = pd.read_parquet(selected_results, engine="fastparquet")
@@ -60,14 +65,20 @@ df_mrr[mrr_disp_cols].head(20)
 
 # %%
 # Pull all job results for a given original query result
-result_disp_cols = [
-    "orig_query_index",
-    "path",
-    "rank",
-    "explanation"
-]
-one_result_set = df[df['orig_query_index']==df_mrr['orig_query_index'].iloc[2]][result_disp_cols]
-print(*one_result_set['explanation'], sep="\n")
+for RANK_IDX in [0, 1, 2, 3, -3, -2, -1]:
+    result_disp_cols = [
+        "orig_query_index",
+        "path",
+        "rank",
+        "explanation"
+    ]
+    one_result_set = df[df['orig_query_index']==df_mrr['orig_query_index'].iloc[RANK_IDX]][result_disp_cols]
+    print("Rank:", RANK_IDX, "| MRR: %.5f" % df_mrr['median'].iloc[RANK_IDX])
+    print("Path:", df_mrr['path'].iloc[RANK_IDX])
+    print("Query as Sentence: ", df_mrr['query_sentence'].iloc[RANK_IDX])
+    print("\nRanking explanation(s):")
+    print(*one_result_set['explanation'], sep="\n")
+    print("------------\n")
 
 
 # %%
@@ -81,7 +92,7 @@ df = df.sort_values('categories')
 
 
 # %%
-df_cats.head(20)
+df_cats.head(10)
 
 
 # %%
@@ -90,15 +101,15 @@ df_cats.tail(8)
 
 # %%
 plt.figure(figsize=(18, 6))
-ax = sns.boxplot(x='categories', y='rank_frac', data=df, color='lightblue', showfliers=False)
-ax = sns.stripplot(x='categories', y='rank_frac', data=df, color='black', alpha=0.3, jitter=True, ax=ax)
+ax = sns.boxplot(x='categories', y='reciprocal_rank', data=df, color='lightblue', showfliers=False)
+ax = sns.stripplot(x='categories', y='reciprocal_rank', data=df, color='black', alpha=0.3, jitter=True, ax=ax)
 
-plt.title('Node Metapath Member Rankings within Chunk (Warafarin -> Cancer)')
+plt.title('MRR Grouped by Category')
 plt.xlabel('Node Metapaths')
-plt.ylabel('Fractional Rank within Cohort')
+plt.ylabel('Reciprocal Rank')
 plt.xticks(rotation=60, ha='right')
 
-plt.savefig('figures/node_metapath_ranking.png')
+plt.savefig(f'figures/{job_file.stem}.png')
 
 
 # %%

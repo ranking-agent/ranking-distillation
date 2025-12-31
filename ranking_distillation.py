@@ -9,27 +9,40 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
+from query_compression import convert_results_to_sentences
+
 # Load env vars
 load_dotenv("/home/npersson/.env")
 
 # --- CONFIGURATION ---
 MODEL_NAME = "gemini-2.5-pro"
-NUM_RUNS = 3
-BATCH_SIZE = 100
+NUM_RUNS = 1
+BATCH_SIZE = 10000
 DOWNSAMPLE_FACTOR = 1 # Total batches will be divided by this number before submission. Set to 1 for all.
-STRATIFIED_BATCHES_PER_RUN = 5
+STRATIFIED_BATCHES_PER_RUN = 0
 GROUP_BY_COL = "categories" 
 JSONL_FILENAME = "batch_requests.jsonl"
 SLEEP_INTERVAL = 60 # Frequency (in seconds) to poll for job status and print
-RANDOM_SEED = 45
+RANDOM_SEED = 42
 
 CONTEXT = """
-I'm working on a module called "pathfinder" for NIH biomedical data Translator. Translator is backed by a knowledge graph assembled from NIH data sources, primarily linking drugs, genes and diseases. Pathfinder is a UI feature where the user specifies two endpoints (drug, disease, gene, etc.), and it's supposed to surface the most interesting or insightful (to a medical researcher) paths between the two.      
+I'm working on a module called "pathfinder" for NIH biomedical data Translator. Translator is backed by a knowledge graph assembled from NIH data sources, primarily linking drugs, genes and diseases.
 
-Here is a batch of results linking two nodes. Each result has a unique "index". 
+Pathfinder is a UI feature where the user specifies two endpoints (drug, disease, gene, etc.), and it's supposed to surface paths that generate novel insights to aid with hypothesis generation and discovery.
 
-Rank these in terms of their level of novelty / insight (as opposed to being obvious, trivial, etc.) and generate a brief explanation of the ranking. 
+The most insightful paths should highlight previously unknown but plausible mechanisms or hypotheses that synthesize knowledge across the knowledge graph and represent compelling new angles for exploration. Direct, causal mechanisms should also be highly ranked, even if already known.
+
+Paths that make indirect hops around known mechanisms but with weak causal or explanatory linkages, e.g. through node similarity or generic correlations, should be lower ranked.
+
+Paths that step through highly-connected nodes (e.g. “cancer”) should be treated with skepticism and down-ranked, unless a plausible mechanism is evident.
+
+Trivial results should be the lowest ranked, e.g. circuitous paths, or spurious / erroneous results. 
+
+Here is a batch of results as JSON, each of whose paths have been condensed into a human-readable sentence. Each result has a unique "index". Rank these in terms of the criteria above and generate a brief explanation for the ranking. All original results must be returned in the ranking.
+
+Once you have ranked everything, re-rank just the top 30, looking for the single most interesting or insightful result. Still return the entire set of ranked results.
 """
+print("Context:", "\n--------\n", CONTEXT, "\n--------\n")
 
 # Define the Schema for Structured Output
 RANKING_SCHEMA = {
@@ -98,7 +111,7 @@ def main():
     # test_csvs = list(QUERIES_DIR.glob("*.csv"))
 
     # Using the same index as original script, ensure files exist
-    pth = QUERIES_DIR / test_csvs[0]
+    pth = QUERIES_DIR / test_csvs[1]
     print(f"Loading data from: {pth}")
     df = pd.read_csv(pth, sep="\t")
     
@@ -137,7 +150,10 @@ def main():
         # Limit processing for debugging/cost control (matches your original logic)
         for chunk in simple_chunks:
             batch_id = str(uuid.uuid4())
-            entry = generate_request_entry(chunk, batch_id, run_i, "simple_shuffle")
+            # Add the sentence and send only that
+            chunk_with_sentences = convert_results_to_sentences(chunk)
+            chunk_for_job = chunk_with_sentences[['index', 'query_sentence']]
+            entry = generate_request_entry(chunk_for_job, batch_id, run_i, "simple_shuffle")
             batch_entries.append(entry)
 
     print(f"Generated {len(batch_entries)} total batch requests.")
