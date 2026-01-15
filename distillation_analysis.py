@@ -28,11 +28,13 @@ print(*ranking_outputs, sep="\n")
 # job_file = Path("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_ddid0rt60yoomydk794iu6abjq30964z8x0k.parquet")
 # job_file = Path("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_grpuxy6whxotvg6e66q53a9lo421c8cv3nqd.parquet")
 # job_file = Path ("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_dsc62t5ssgwfd9cm8hhw1eoiyl9t95m3zaur.parquet")
-job_file = Path ("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_qzrhp409uijfk9pjbinttf9xklenchbi57fd.parquet")
+# job_file = Path ("MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths_ranked_batch_qzrhp409uijfk9pjbinttf9xklenchbi57fd.parquet")
+# job_file = Path("2026-01-13-gemini-ranking-MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths-gemini-3-flash-preview-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
+job_file = Path("flash/2025-12-31-gemini-ranking-MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths-gemini-3-flash-preview-nr-1-bs-10000-df-1-sb-0-gb-categories-rs-42.parquet")
 selected_results = RESULTS_DIR / job_file
 print("\nSelected:", selected_results.name)
 
-orig_dataset = [pp for pp in test_csvs if str(pp.name)[:25] == str(selected_results.name)[:25]][0]
+orig_dataset = [pp for pp in test_csvs if str(pp.name)[:25] == str(selected_results.name)[26:51]][0]
 print("\nMatched original dataset:", orig_dataset)
 
 
@@ -41,12 +43,14 @@ print("\nMatched original dataset:", orig_dataset)
 df_orig = pd.read_csv(orig_dataset, sep="\t")
 df_orig = df_orig.reset_index(names="orig_query_index")
 df_orig = convert_results_to_sentences(df_orig).set_index("orig_query_index", drop=True)
+df_orig.sample(3)
 
+# %%
 # Read in ranking job results
 df = pd.read_parquet(selected_results, engine="fastparquet")
 df['reciprocal_rank'] = df.groupby("job_id")["rank"].transform(lambda x: x / x.max())
 df = df.rename(columns={"index": "orig_query_index"})
-df.sample(8)
+df.sample(3)
 
 
 # %%
@@ -60,8 +64,8 @@ mrr_disp_cols = [
     "median",
     "metapaths",
 ]
-df_mrr[mrr_disp_cols].head(20)
-# df_mrr.to_csv(RESULTS_DIR / )
+# df_mrr[mrr_disp_cols].head(4)
+df_mrr.head(4)
 
 # %%
 # Pull all job results for a given original query result
@@ -79,6 +83,10 @@ for RANK_IDX in [0, 1, 2, 3, -3, -2, -1]:
     print("\nRanking explanation(s):")
     print(*one_result_set['explanation'], sep="\n")
     print("------------\n")
+
+
+# %%
+
 
 
 # %%

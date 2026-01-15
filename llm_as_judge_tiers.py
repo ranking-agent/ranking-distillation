@@ -19,21 +19,40 @@ load_dotenv("/home/npersson/.env")
 #####################################################
 
 CONTEXT = """
-I'm working on a module called "pathfinder" for NIH biomedical data Translator. Translator is backed by a knowledge graph assembled from NIH data sources, primarily linking drugs, genes and diseases.
+You are an expert biomedical researcher and graph data scientist working on the NIH Translator project. Your task is to evaluate "Pathfinder" knowledge graph paths based on their clinical utility and causal logic.
 
-Pathfinder is a UI feature where the user specifies two endpoints (drug, disease, gene, etc.), and it's supposed to surface paths that generate novel insights to aid with hypothesis generation and discovery.
+You will be given a list of paths connecting two biomedical concepts. Your goal is to classify each path into one of four tiers.
 
-The most insightful paths should highlight previously unknown but plausible mechanisms or hypotheses that synthesize knowledge across the knowledge graph and represent compelling new angles for exploration. Direct, causal mechanisms should also be highly ranked, even if already known.
+### The Scoring Rubric
 
-Paths that make indirect hops around known mechanisms but with weak causal or explanatory linkages, e.g. through node similarity or generic correlations, should be lower ranked.
+**Tier 1: High-Value Causal Mechanism**
+* **Criteria:** The path represents a plausible, direct mechanism of action with high clinical or research relevance. It uses specific predicates (e.g., `inhibits`, `regulates`, `has phenotype`) rather than vague associations.
+* **Example:** Imatinib inhibits KIT which participates in Mast Cell Activation which contributes to Asthma
 
-Paths that step through highly-connected nodes (e.g. “cancer”) should be treated with skepticism and down-ranked, unless a plausible mechanism is evident.
+**Tier 2: Plausible but Indirect/Loose**
+* **Criteria:** The logic is sound, but the path might be an indirect variant of a primary mechanism, or the predicates are slightly weaker (e.g., `associated with` in a crucial step), or the relevance is secondary.
 
-Trivial results should be the lowest ranked, e.g. circuitous paths, or spurious / erroneous results. 
+**Tier 3: Low-Insight / Generic Hops**
+* **Criteria:** The path hops mostly through nodes of high similarity, high-degree nodes (e.g. cancer) or through vague predicates (e.g. `associated with`)
+* **Example:** Imatinib chemically similar to masitinib which related to asthma
 
-Here is a batch of results as JSON, each of whose paths have been condensed into a human-readable sentence. Each result has a unique "index". Rank these in terms of the criteria above and generate a brief explanation for the ranking. All original results must be returned in the ranking.
+**Tier 4: Trivial / Artifacts**
+* **Criteria:** The path contains loops, tautologies, or data artifacts.
+* **Example:** Disease X related to Disease X.
 
-Once you have ranked everything, re-rank just the top 30, looking for the single most interesting or insightful result. Still return the entire set of ranked results.
+### Output Format
+
+Return a JSON object containing a list of all input results by their original index. Do not repeat the input path text.
+Format:
+{
+  "results": [
+    {
+      "index": <integer_id>,
+      "tier": <integer_1_to_4>,
+      "explanation": "<brief_concise_reasoning>"
+    }
+  ]
+}
 """
 print("Context:", "\n--------\n", CONTEXT, "\n--------\n")
 
@@ -45,10 +64,10 @@ RANKING_SCHEMA = {
         "type": "OBJECT",
         "properties": {
             "index": {"type": "INTEGER"},
-            "rank": {"type": "INTEGER"},
+            "tier": {"type": "INTEGER"},
             "explanation": {"type": "STRING"}
         },
-        "required": ["index", "rank", "explanation"]
+        "required": ["index", "tier", "explanation"]
     }
 }
 
@@ -159,7 +178,7 @@ def run_ranking(
         stop_row = total_rows // DOWNSAMPLE_FACTOR
 
         simple_chunks = [df_shuffled.iloc[i:i + BATCH_SIZE] for i in range(0, stop_row, BATCH_SIZE)]
-        print(f"Submitting {len(simple_chunks)} chunks...")
+        print(f"Preparing {len(simple_chunks)} chunks...")
         
         for chunk in simple_chunks:
             batch_id = str(uuid.uuid4())
@@ -168,7 +187,7 @@ def run_ranking(
             entry = generate_request_entry(chunk_for_job, batch_id, run_i, "simple_shuffle")
             batch_entries.append(entry)
 
-    tokens_in_sample_entry = len(batch_entries[0]['request']['contents'][0]['parts'][0]['text']) // 3
+    tokens_in_sample_entry = len(batch_entries[0]['request']['contents'][0]['parts'][0]['text']) // 4
     print(f"Generated {len(batch_entries)} total batch requests.")
     print(f"About {tokens_in_sample_entry} tokens in the first entry.")
 
@@ -373,48 +392,53 @@ if __name__ == "__main__":
     config = {
         "MODEL_NAME": "gemini-3-flash-preview",
         "NUM_RUNS": 1,
-        "BATCH_SIZE": 10000,
-        "DOWNSAMPLE_FACTOR": 1,
+        "BATCH_SIZE": 100,
+        "DOWNSAMPLE_FACTOR": 10,
         "STRATIFIED_BATCHES_PER_RUN": 0,
         "GROUP_BY_COL": "categories",
         "JSONL_FILENAME": "batch_requests.jsonl",
-        "SLEEP_INTERVAL": 60,
+        "SLEEP_INTERVAL": 30,
         "RANDOM_SEED": 42
     }
 
     # Load Data
     TEST_SET_DIR = Path("/mnt/nas0_data1/projects/translator/users/npersson/pathfinder_test_sets/")
-    QUERIES_DIR = TEST_SET_DIR / "rare_disease_queries"
+    # QUERIES_DIR = TEST_SET_DIR / "rare_disease_queries"
+    # test_csvs = [
+    #     "MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths.csv", # Crigler-Najjar
+    #     # "MONDO_0009897_to_NCBIGene_2632_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0007931_to_NCBIGene_7439_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0009672_to_NCBIGene_6606_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0013166_to_NCBIGene_18_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0011308_to_NCBIGene_617_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0019353_to_NCBIGene_24_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0010130_to_NCBIGene_1806_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0003947_to_NCBIGene_959_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0009653_to_NCBIGene_57192_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0008224_to_NCBIGene_6329_3_hop_w_direction_paths.csv",
+    #     # "MONDO_0008692_to_NCBIGene_4547_3_hop_w_direction_paths.csv", # 17MB
+    # ]
+    QUERIES_DIR = TEST_SET_DIR / "generic_queries"
     test_csvs = [
-        "MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths.csv", # Crigler-Najjar
-        "MONDO_0009897_to_NCBIGene_2632_3_hop_w_direction_paths.csv",
-        "MONDO_0007931_to_NCBIGene_7439_3_hop_w_direction_paths.csv",
-        "MONDO_0009672_to_NCBIGene_6606_3_hop_w_direction_paths.csv",
-        "MONDO_0013166_to_NCBIGene_18_3_hop_w_direction_paths.csv",
-        "MONDO_0011308_to_NCBIGene_617_3_hop_w_direction_paths.csv",
-        "MONDO_0019353_to_NCBIGene_24_3_hop_w_direction_paths.csv",
-        "MONDO_0010130_to_NCBIGene_1806_3_hop_w_direction_paths.csv",
-        "MONDO_0003947_to_NCBIGene_959_3_hop_w_direction_paths.csv",
-        "MONDO_0009653_to_NCBIGene_57192_3_hop_w_direction_paths.csv",
-        "MONDO_0008224_to_NCBIGene_6329_3_hop_w_direction_paths.csv",
-        "MONDO_0008692_to_NCBIGene_4547_3_hop_w_direction_paths.csv", # 17MB
+        "CHEBI_45783_to_MONDO_0004979_3_hop_w_direction_paths.csv" # imatinib -> asthma
     ]
 
-    OUTPUT_DIR = TEST_SET_DIR / "ranked_results"
+    OUTPUT_DIR = TEST_SET_DIR / "ranked_results" / "flash"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     RAW_RESULTS_DIR = TEST_SET_DIR / "gemini_batch_outputs"
     os.makedirs(RAW_RESULTS_DIR, exist_ok=True)
 
-    for csv in test_csvs[6:]:
+    for csv in test_csvs:
         pth = QUERIES_DIR / csv
 
         # Construct output filename
         today = datetime.today().strftime("%Y-%m-%d")
         output_file_name = (
-            f"{today}-gemini-ranking-"
+            f"{today}-gemini-labels-"
             f"{pth.stem}-"
             f"{config['MODEL_NAME']}-"
+            f"prompt-v5-"
             f"nr-{config['NUM_RUNS']}-"
             f"bs-{config['BATCH_SIZE']}-"
             f"df-{config['DOWNSAMPLE_FACTOR']}-"
