@@ -94,11 +94,11 @@ for test_node in test_nodes:
 
 # %%
 test_curies = [
-    "NCBIGene:3815",
-    "CHEBI:18295",
-    "PR:000049994",
-    "NCBIGene:4254",
-    "CL:0000097",
+    "NCBIGene:3815", # KIT
+    "CHEBI:18295", # Histamine
+    "PR:000049994", # Histamine
+    "NCBIGene:4254", # SCF-1
+    "CL:0000097", # Mast Cell
 ]
 for test_curie in test_curies:
     print(test_curie)
@@ -111,4 +111,27 @@ for test_curie in test_curies:
     print(tier_counts)
     print("\n")
 
+
 # %%
+for tc in test_curies:
+    print(tc)
+    print(df['node_curies'].apply(lambda nc: tc in nc).sum())
+
+
+
+
+
+# %%
+
+top, mid, bot = get_stratified_samples(df)
+
+disp_cols = [
+    "path",
+    "orig_query_index",
+    "tier",
+    "explanation",
+    "query_sentence"
+]
+print(top[disp_cols].to_csv(sep='\t', index=True))
+print(mid[disp_cols].to_csv(sep='\t', index=True))
+print(bot[disp_cols].to_csv(sep='\t', index=True))
