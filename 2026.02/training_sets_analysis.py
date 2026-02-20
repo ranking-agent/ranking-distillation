@@ -25,12 +25,11 @@ print("\nRanked outputs avaialble:")
 print(*ranking_outputs, sep="\n")
 
 # Pick a specific job result file
-# job_file = Path("2026-01-29-gemini-labels-asthma_results_subset-gemini-3-flash-preview-prompt-v7-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
-# job_file = Path("2026-02-04-gemini-labels-CHEBI_13719_to_MONDO_0005575_3_hop_w_direction_paths-gemini-3-flash-preview-prompt-v8-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
-# job_file = Path("2026-02-04-gemini-labels-CHEBI_5118_to_MONDO_0100233_3_hop_w_direction_paths-gemini-3-flash-preview-prompt-v8-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
 # job_file = Path("2026-02-05-gemini-labels-CHEBI_13719_to_MONDO_0005575_3_hop_w_direction_paths-gemini-3-flash-preview-prompt-v9-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
-job_file = Path("2026-02-05-gemini-labels-CHEBI_5118_to_MONDO_0100233_3_hop_w_direction_paths-gemini-3-flash-preview-prompt-v9-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
+# job_file = Path("2026-02-05-gemini-labels-CHEBI_5118_to_MONDO_0100233_3_hop_w_direction_paths-gemini-3-flash-preview-prompt-v9-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
 # job_file = Path("2026-02-05-gemini-labels-asthma_results_subset-gemini-3-flash-preview-prompt-v9-nr-1-bs-500-df-1-sb-0-gb-categories-rs-42.parquet")
+job_file = Path("2026-02-12-gemini-labels-CHEBI_9139_to_MONDO_0004975_3_hop_w_direction_paths-gemini-3-flash-preview-prompt-v9-nr-1-bs-500-df-20-sb-0-gb-categories-rs-42.parquet")
+# job_file = Path()
 selected_results = RESULTS_DIR / job_file
 print("\nSelected:", selected_results.name)
 

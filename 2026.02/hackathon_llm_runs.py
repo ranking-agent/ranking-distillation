@@ -419,7 +419,7 @@ if __name__ == "__main__":
         "MODEL_NAME": "gemini-3-flash-preview",
         "NUM_RUNS": 1,
         "BATCH_SIZE": 500,
-        "DOWNSAMPLE_FACTOR": 20,
+        "DOWNSAMPLE_FACTOR": 4,
         "STRATIFIED_BATCHES_PER_RUN": 0,
         "GROUP_BY_COL": "categories",
         "JSONL_FILENAME": "batch_requests.jsonl",
@@ -429,31 +429,19 @@ if __name__ == "__main__":
 
     # Load Data
     TEST_SET_DIR = Path("/mnt/nas0_data1/projects/translator/users/npersson/pathfinder_test_sets")
-    # TEST_SET_DIR = Path("/home/npersson/data/pathfinder_test_sets/")
-
-    # QUERIES_DIR = TEST_SET_DIR / "rare_disease_queries"
+    # QUERIES_DIR = TEST_SET_DIR / "training_queries"
     # test_csvs = [
-    #     "MONDO_0021020_to_NCBIGene_54658_3_hop_w_direction_paths.csv", # Crigler-Najjar
-    #     # "MONDO_0009897_to_NCBIGene_2632_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0007931_to_NCBIGene_7439_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0009672_to_NCBIGene_6606_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0013166_to_NCBIGene_18_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0011308_to_NCBIGene_617_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0019353_to_NCBIGene_24_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0010130_to_NCBIGene_1806_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0003947_to_NCBIGene_959_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0009653_to_NCBIGene_57192_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0008224_to_NCBIGene_6329_3_hop_w_direction_paths.csv",
-    #     # "MONDO_0008692_to_NCBIGene_4547_3_hop_w_direction_paths.csv", # 17MB
+    #     # "CHEBI_45783_to_MONDO_0004979_3_hop_w_direction_paths.csv", # imatinib -> asthma
+    #     # "asthma_results_subset.csv", # imatinib -> asthma with all passing test nodes
+    #     # "CHEBI_13719_to_MONDO_0005575_3_hop_w_direction_paths.csv", # acetylsalicylate -> colorectal cancer - not enough paths
+    #     # "CHEBI_5118_to_MONDO_0100233_3_hop_w_direction_paths.csv", # Fluoxetine -> Long COVID
+    #     # "CHEBI_7465_to_MONDO_0008218_3_hop_w_direction_paths.csv", # Naltrexone -> Hailey-Hailey disease
+    #     "CHEBI_9139_to_MONDO_0004975_3_hop_w_direction_paths.csv", # Sildenafil -> Alzheimer's (needs 10:1 downsampling)
     # ]
-    QUERIES_DIR = TEST_SET_DIR / "training_queries"
+    QUERIES_DIR = TEST_SET_DIR / "gandalf_responses_related"
     test_csvs = [
-        # "CHEBI_45783_to_MONDO_0004979_3_hop_w_direction_paths.csv", # imatinib -> asthma
-        # "asthma_results_subset.csv", # imatinib -> asthma with all passing test nodes
-        # "CHEBI_13719_to_MONDO_0005575_3_hop_w_direction_paths.csv", # acetylsalicylate -> colorectal cancer - not enough paths
-        # "CHEBI_5118_to_MONDO_0100233_3_hop_w_direction_paths.csv", # Fluoxetine -> Long COVID
-        # "CHEBI_7465_to_MONDO_0008218_3_hop_w_direction_paths.csv", # Naltrexone -> Hailey-Hailey disease
-        "CHEBI_9139_to_MONDO_0004975_3_hop_w_direction_paths.csv", # Sildenafil -> Alzheimer's (needs 10:1 downsampling)
+        "CHEBI_83766_to_MONDO_0008170_3_hop_w_direction_paths.tsv", # Olaparib -> ovarian cancer
+        "CHEBI_3750_to_MONDO_0013209_3_hop_w_direction_paths.tsv", # Clofibrate -> liver disease
     ]
 
     OUTPUT_DIR = QUERIES_DIR / "ranking_outputs"
