@@ -13,6 +13,7 @@ print(*test_csvs, sep="\n")
 # %%
 for cc in test_csvs:
     df = pd.read_csv(cc, sep="\t")
+    print("\n", cc.name)
     print(df.shape)
     if df.shape[0]>0:
         print(df['path'].iloc[0])

@@ -27,8 +27,8 @@ Your goal is to classify each path into one of four tiers and provide an explana
 
 ### The Scoring Rubric
 
-**Tier 1: Direct, Causal Mechanism with high clinical or research significance**
-* **Criteria:** The path represents a direct mechanism of action with high clinical or research relevance. It makes hops that are mechanistic in nature (vs through similarity or correlation) between nodes that are fundamental to the underlying disease process. Prefer paths that span mechanisms evenly, vs. zooming in on a sub-mechanism. In general, Tier 1 should be pretty selective and only represent a small fraction of a given dataset.
+**Tier 1: Direct, Causal Mechanistic steps with high clinical or research significance**
+* **Criteria:** The path represents a path through direct, causal mechanistic steps with high clinical or research relevance. It makes hops that are mechanistic in nature (vs through similarity or correlation) between nodes that are fundamental to disease processes. In general, Tier 1 should be pretty selective and only represent a small fraction of a given dataset.
 * **Examples:**
 <Drug> inhibits <gene> which participates in <cellular mechanism> which contributes to <disease>
 <ChemicalEntity> [biolink:increases_abundance_of] <Protein> [biolink:regulates] <Gene> [biolink:contributes_to] <Disease>
@@ -38,7 +38,8 @@ Your goal is to classify each path into one of four tiers and provide an explana
 These counter-examples apply to both Tier 1 and Tier 2. Paths matching these counter-examples should be placed in Tier 3 or 4.
 Do not include paths just because one of the nodes is interesting if the other is unrelated. For example, <Drug> studied to treat <common disease> associated with <Gene> related to <Disease>. The common disease is not an explanatory or mechanistic hop.
 If it seems like a better path might exist using the node of interest, assume that that path will be found and placed in Tier 1. Not all results are present in each batch being scored.
-Do not include paths that seem to change direction. For example, <Drug> affects <Gene> which affected by <Other Drug> which treats <Disease>. Hopping back to a drug from a gene is changing direction. Up-rank paths that take linear, mechanistic paths from start to end.
+Do not include paths that make large hops in different directions. For example, <Drug> affects <Gene> which affected by <Other Drug> which treats <Disease>. Hopping back to a drug from a gene indicates lack of direction. Up-rank paths that take linear, mechanistic paths from start to end.
+The caveat to this criteria is when finding paths between nodes of similar type, e.g. Disease to Disease. In this case, the path may need to go "in reverse" to find linking nodes (e.g. a gene-gene or symptomatic pair) before going back up to the ending Disease node.
 Do not include "negative" results, unless they appear to be highlighting a previously unknown or unexplored interaction. For example, <Drug> causes <symptom / side effect> which adverse event of <other drug> which treats <Disease> is not helpful.
 Do not include similarity hops, e.g. <Drug> similar to <other drug> targets <gene> affects <Disease>. These are not mechanistic.
 
@@ -162,6 +163,15 @@ def run_ranking(
 
     print(f"Loading data from: {pth}")
     df = pd.read_csv(pth, sep="\t")
+    if DOWNSAMPLE_FACTOR == "auto":
+        total_results = len(df)
+        print(f"Dataset contains {total_results} results. Targeting <20,000")
+        if total_results > 25000:
+            DOWNSAMPLE_FACTOR = total_results // 20000 + 1 # Never yield more than 20k rows for batch jobs
+        else:
+            DOWNSAMPLE_FACTOR = 1
+        print(f"Using downsample factor of {DOWNSAMPLE_FACTOR}")
+
     
     if 'index' not in df.columns:
         df['index'] = df.index
@@ -419,7 +429,7 @@ if __name__ == "__main__":
         "MODEL_NAME": "gemini-3-flash-preview",
         "NUM_RUNS": 1,
         "BATCH_SIZE": 500,
-        "DOWNSAMPLE_FACTOR": 4,
+        "DOWNSAMPLE_FACTOR": "auto",
         "STRATIFIED_BATCHES_PER_RUN": 0,
         "GROUP_BY_COL": "categories",
         "JSONL_FILENAME": "batch_requests.jsonl",
@@ -438,10 +448,10 @@ if __name__ == "__main__":
     #     # "CHEBI_7465_to_MONDO_0008218_3_hop_w_direction_paths.csv", # Naltrexone -> Hailey-Hailey disease
     #     "CHEBI_9139_to_MONDO_0004975_3_hop_w_direction_paths.csv", # Sildenafil -> Alzheimer's (needs 10:1 downsampling)
     # ]
-    QUERIES_DIR = TEST_SET_DIR / "gandalf_responses_related"
+    QUERIES_DIR = TEST_SET_DIR / "gandalf_responses_predicates_with_inverse"
     test_csvs = [
-        "CHEBI_83766_to_MONDO_0008170_3_hop_w_direction_paths.tsv", # Olaparib -> ovarian cancer
-        "CHEBI_3750_to_MONDO_0013209_3_hop_w_direction_paths.tsv", # Clofibrate -> liver disease
+        # "MONDO_0005011_to_MONDO_0005180_3_hop_w_direction_paths.tsv", # Crohns -> Parksinsons
+        "MONDO_0019632_to_MONDO_0005340_3_hop_w_direction_paths.tsv", # Lyme Disease -> alopecia
     ]
 
     OUTPUT_DIR = QUERIES_DIR / "ranking_outputs"
