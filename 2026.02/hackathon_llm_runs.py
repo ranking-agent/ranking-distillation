@@ -155,7 +155,12 @@ def run_ranking(
         print("Error: GEMINI_API_KEY not found in environment variables.")
         return
         
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        vertexai=True,
+        project="gen-lang-client-0636424847",
+        location="us-central1",
+        # api_key=api_key,
+        )
     
     ########################
     # RAW DATA PREP
@@ -426,7 +431,7 @@ if __name__ == "__main__":
     start_time = time.perf_counter()
     # LLM Job Config
     config = {
-        "MODEL_NAME": "gemini-3-flash-preview",
+        "MODEL_NAME": "gemini-flash-latest",
         "NUM_RUNS": 1,
         "BATCH_SIZE": 500,
         "DOWNSAMPLE_FACTOR": "auto",
