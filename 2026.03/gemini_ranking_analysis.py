@@ -10,8 +10,8 @@ from query_compression import convert_results_to_sentences
 
 # %%
 # Base NAS dir
-# TEST_SETS_DIR = Path("/mnt/nas0_data1/projects/translator/users/npersson/pathfinder_test_sets/")
-TEST_SETS_DIR = Path("/home/npersson/data/pathfinder_test_sets/")
+TEST_SETS_DIR = Path("/mnt/nas0_data1/projects/translator/users/npersson/pathfinder_test_sets/")
+# TEST_SETS_DIR = Path("/home/npersson/data/pathfinder_test_sets/")
 
 # Original results from Neo4j
 ORIG_QUERIES_DIR = TEST_SETS_DIR / "gandalf_responses_predicates_with_inverse"
@@ -20,7 +20,7 @@ print("Raw query results files:")
 print(*test_csvs, sep="\n")
 
 # Results from Gemini
-RESULTS_DIR = ORIG_QUERIES_DIR / "ranking_outputs"
+RESULTS_DIR = ORIG_QUERIES_DIR / "ranking_outputs_flash_3p1_10k"
 ranking_outputs = list(RESULTS_DIR.glob("*.parquet"))
 print("\nRanked outputs avaialble:")
 print(*ranking_outputs, sep="\n")
@@ -28,25 +28,15 @@ print(*ranking_outputs, sep="\n")
 
 # %%
 # Pick a specific job result file
-job_file = Path("2026-01-29-gemini-labels-asthma_results_subset-gemini-3-flash-preview-prompt-v7-nr-1-bs-200-df-1-sb-0-gb-categories-rs-42.parquet")
-selected_results = RESULTS_DIR / job_file
+selected_results = ranking_outputs[1]
+# selected_results = RESULTS_DIR / job_file
 print("\nSelected:", selected_results.name)
-
-
-# %%
-# Read in original query results
-orig_dataset = test_csvs[0]
-df_orig = pd.read_csv(orig_dataset, sep="\t")
-df_orig = df_orig.reset_index(names="orig_query_index")
-df_orig = convert_results_to_sentences(df_orig).set_index("orig_query_index", drop=True)
-df_orig.sample(3)
 
 
 # %%
 # Read in ranking job results
 df = pd.read_parquet(selected_results, engine="fastparquet")
 df = df.rename(columns={"index": "orig_query_index"})
-df = convert_results_to_sentences(df)
 df.sample(3)
 
 
@@ -59,6 +49,7 @@ plt.ylabel('Count')
 
 # %%
 df = df.sort_values('tier')
+plt.figure(figsize=(18,12))
 sns.countplot(data=df, x='categories', hue='tier', palette='colorblind')
 plt.xticks(rotation=45, ha='right')
 plt.tight_layout()

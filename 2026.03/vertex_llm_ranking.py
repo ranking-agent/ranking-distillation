@@ -195,8 +195,8 @@ def run_ranking(pth, output_dir, raw_results_dir, output_file_name, **config):
     
     if config['DOWNSAMPLE_FACTOR'] == "auto":
         total_results = len(df)
-        print(f"Dataset contains {total_results} results. Targeting <20,000")
-        downsample = total_results // 20000 + 1 if total_results > 25000 else 1
+        print(f"Dataset contains {total_results} results. Targeting <10,000")
+        downsample = total_results // 10000 + 1 if total_results > 12000 else 1
     else:
         downsample = config['DOWNSAMPLE_FACTOR']
 
@@ -223,9 +223,9 @@ def run_ranking(pth, output_dir, raw_results_dir, output_file_name, **config):
     total_est_tokens = len(batch_entries) * tokens_in_sample
     print(f"Generated {len(batch_entries)} batches (~{total_est_tokens} total tokens).")
 
-    user_choice = input(f"Submit to Vertex AI? (y/n): ")
-    if user_choice.lower().strip() != "y":
-        raise KeyboardInterrupt("Cancelled by user.")
+    # user_choice = input(f"Submit to Vertex AI? (y/n): ")
+    # if user_choice.lower().strip() != "y":
+    #     raise KeyboardInterrupt("Cancelled by user.")
 
     # 4. UPLOAD & SUBMIT
     job_uuid = str(uuid.uuid4())
@@ -279,7 +279,7 @@ if __name__ == "__main__":
     config = {
         "MODEL_NAME": "gemini-3.1-flash-lite-preview",
         "NUM_RUNS": 1,
-        "BATCH_SIZE": 500,
+        "BATCH_SIZE": 250,
         "DOWNSAMPLE_FACTOR": "auto",
         "RANDOM_SEED": 42
     }
@@ -296,19 +296,21 @@ if __name__ == "__main__":
     #     "CHEBI_9139_to_MONDO_0004975_3_hop_w_direction_paths.csv", # Sildenafil -> Alzheimer's (needs 10:1 downsampling)
     # ]
     QUERIES_DIR = TEST_SET_DIR / "gandalf_responses_predicates_with_inverse"
-    test_csvs = [
-        "MONDO_0019632_to_MONDO_0005340_3_hop_w_direction_paths.tsv", # Lyme Disease -> alopecia
-        "MONDO_0005011_to_MONDO_0005180_3_hop_w_direction_paths.tsv", # Crohns -> Parksinsons
-    ]
+    # test_csvs = [
+    #     "MONDO_0019632_to_MONDO_0005340_3_hop_w_direction_paths.tsv", # Lyme Disease -> alopecia
+    #     "MONDO_0005011_to_MONDO_0005180_3_hop_w_direction_paths.tsv", # Crohns -> Parksinsons
+    # ]
+    test_csvs = list(QUERIES_DIR.glob("*.tsv"))
+    print(f"Running {len(test_csvs)} TSV files from {QUERIES_DIR}")
 
-    OUTPUT_DIR = QUERIES_DIR / "ranking_outputs"
+    OUTPUT_DIR = QUERIES_DIR / "ranking_outputs_flash_3p1_10k"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     RAW_RESULTS_DIR = TEST_SET_DIR / "raw_gemini_batch_outputs"
     os.makedirs(RAW_RESULTS_DIR, exist_ok=True)
 
-    for csv in test_csvs:
-        pth = QUERIES_DIR / csv
+    for pth in test_csvs[1:]:
+        # pth = QUERIES_DIR / csv
 
         # Construct output filename
         today = datetime.today().strftime("%Y-%m-%d")
