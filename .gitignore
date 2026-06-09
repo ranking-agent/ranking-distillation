@@ -11,6 +11,9 @@ __pycache__/
 # But not these files...
 !.gitignore
 !*.py
+!*.js
+!*.html
+!*.css
 !*.sql
 !*.toml
 !*.md
