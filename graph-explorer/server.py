@@ -24,6 +24,7 @@ Configuration via environment variables (all optional):
 
 import json
 import os
+import socket
 import sys
 import urllib.parse
 import urllib.request
@@ -37,10 +38,34 @@ from threading import Lock
 # ---------------------------------------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
 GANDALF_BASE = os.environ.get("GANDALF_BASE", "https://gandalf.renci.org").rstrip("/")
+NAME_RESOLVER = os.environ.get(
+    "GANDALF_NAME_RESOLVER", "https://name-resolution-sri.renci.org"
+).rstrip("/")
 PORT = int(os.environ.get("GANDALF_PORT", "8000"))
 SUBCLASS = os.environ.get("GANDALF_SUBCLASS", "false").lower() in ("1", "true", "yes")
 TIMEOUT = float(os.environ.get("GANDALF_TIMEOUT", "60"))
 DEGREE_WORKERS = int(os.environ.get("GANDALF_DEGREE_WORKERS", "8"))
+# Force IPv4: urllib doesn't do "Happy Eyeballs", so a broken IPv6 route makes
+# the TLS handshake hang until timeout even though the browser (which races v4
+# and v6) connects fine. Forcing IPv4 is the usual fix; set GANDALF_IPV4=false
+# if you're on an IPv6-only network.
+FORCE_IPV4 = os.environ.get("GANDALF_IPV4", "true").lower() in ("1", "true", "yes")
+# Offline demo mode: serve synthetic data instead of calling RENCI. Handy for
+# trying the UI when the live endpoint is unreachable. Run: GANDALF_MOCK=1 python3 server.py
+MOCK = os.environ.get("GANDALF_MOCK", "false").lower() in ("1", "true", "yes")
+WIKI_UA = os.environ.get(
+    "GANDALF_WIKI_UA", "Mithrandir-Graph-Explorer/1.0 (local research prototype)"
+)
+
+if FORCE_IPV4:
+    _orig_getaddrinfo = socket.getaddrinfo
+
+    def _ipv4_getaddrinfo(host, port, family=0, *args, **kwargs):
+        results = _orig_getaddrinfo(host, port, family, *args, **kwargs)
+        v4 = [r for r in results if r[0] == socket.AF_INET]
+        return v4 or results
+
+    socket.getaddrinfo = _ipv4_getaddrinfo
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -56,6 +81,73 @@ _degree_cache = {}
 _degree_lock = Lock()
 _expand_cache = {}
 _expand_lock = Lock()
+_wiki_cache = {}
+_wiki_lock = Lock()
+
+
+# ---------------------------------------------------------------------------
+# Mock data (offline demo mode)
+# ---------------------------------------------------------------------------
+import hashlib
+
+_MOCK_CATS = {
+    "Gene": "biolink:Gene",
+    "Protein": "biolink:Protein",
+    "Disease": "biolink:Disease",
+    "Chemical": "biolink:ChemicalEntity",
+    "Pathway": "biolink:Pathway",
+    "Phenotype": "biolink:PhenotypicFeature",
+}
+
+
+def _mock_degree(curie):
+    h = int(hashlib.sha1(curie.encode()).hexdigest()[:6], 16)
+    return 1 + (h % 4000)
+
+
+def _mock_neighbors(prefix, n, cat_mix):
+    out = []
+    for k in range(n):
+        cat_name = cat_mix[k % len(cat_mix)]
+        nid = f"MOCK:{prefix}-{k:04d}"
+        out.append({
+            "id": nid,
+            "name": f"{cat_name} {prefix} {k:03d}",
+            "categories": [_MOCK_CATS[cat_name]],
+        })
+    return out
+
+
+def mock_expand(curie):
+    groups = [
+        {"key": "out|biolink:affects", "predicate": "biolink:affects", "direction": "out",
+         "neighbors": _mock_neighbors("aff", 64, ["Gene", "Protein"])},
+        {"key": "out|biolink:related_to", "predicate": "biolink:related_to", "direction": "out",
+         "neighbors": _mock_neighbors("rel", 320, ["Chemical", "Disease", "Gene"])},
+        {"key": "out|biolink:treats", "predicate": "biolink:treats", "direction": "out",
+         "neighbors": _mock_neighbors("trt", 11, ["Disease"])},
+        {"key": "in|biolink:has_participant", "predicate": "biolink:has_participant", "direction": "in",
+         "neighbors": _mock_neighbors("par", 18, ["Pathway", "Protein"])},
+        {"key": "in|biolink:has_phenotype", "predicate": "biolink:has_phenotype", "direction": "in",
+         "neighbors": _mock_neighbors("phe", 7, ["Phenotype"])},
+    ]
+    for g in groups:
+        g["count"] = len(g["neighbors"])
+    groups.sort(key=lambda g: g["count"], reverse=True)
+    return {"curie": curie, "name": f"Mock node {curie}",
+            "categories": ["biolink:ChemicalEntity"], "groups": groups, "errors": []}
+
+
+def mock_search(q):
+    base = [
+        ("CHEBI:6801", "metformin", ["biolink:ChemicalEntity"]),
+        ("MONDO:0005148", "type 2 diabetes mellitus", ["biolink:Disease"]),
+        ("NCBIGene:7157", "TP53", ["biolink:Gene"]),
+        ("HP:0001250", "seizure", ["biolink:PhenotypicFeature"]),
+    ]
+    ql = q.lower()
+    hits = [b for b in base if ql in b[1].lower()] or base
+    return [{"curie": c, "label": l, "types": t} for (c, l, t) in hits[:10]]
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +172,11 @@ def _get_degree(curie):
     with _degree_lock:
         if curie in _degree_cache:
             return _degree_cache[curie]
+    if MOCK:
+        d = _mock_degree(curie)
+        with _degree_lock:
+            _degree_cache[curie] = d
+        return d
     url = f"{GANDALF_BASE}/node_degree/{urllib.parse.quote(curie, safe='')}"
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -128,6 +225,12 @@ def expand(curie):
     with _expand_lock:
         if curie in _expand_cache:
             return _expand_cache[curie]
+
+    if MOCK:
+        result = mock_expand(curie)
+        with _expand_lock:
+            _expand_cache[curie] = result
+        return result
 
     root_name, root_cats = curie, []
     # key -> {predicate, direction, neighbors: {id: {id,name,categories}}}
@@ -203,6 +306,107 @@ def expand(curie):
     }
     with _expand_lock:
         _expand_cache[curie] = result
+    return result
+
+
+def search_names(q, limit=10):
+    """
+    Proxy the SRI Name Resolver autocomplete. Returns a normalised list of
+    {curie, label, types}. Tolerant of the resolver's list- and dict-shaped
+    responses across versions.
+    """
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    if MOCK:
+        return mock_search(q)
+    params = urllib.parse.urlencode(
+        {"string": q, "autocomplete": "true", "offset": "0", "limit": str(limit)}
+    )
+    url = f"{NAME_RESOLVER}/lookup?{params}"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=min(TIMEOUT, 20)) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    out = []
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            curie = item.get("curie") or item.get("id")
+            if not curie:
+                continue
+            syns = item.get("synonyms") or []
+            label = item.get("label") or (syns[0] if syns else curie)
+            out.append({"curie": curie, "label": label, "types": item.get("types") or []})
+    elif isinstance(data, dict):
+        # older shape: {curie: [synonyms...]}
+        for curie, syns in data.items():
+            label = syns[0] if isinstance(syns, list) and syns else curie
+            out.append({"curie": curie, "label": label, "types": []})
+    return out
+
+
+def wiki_summary(name):
+    """
+    Resolve a node name to an English Wikipedia article by search, then return
+    a short summary. Cached per name. Returns {found, title, description,
+    extract, url, type} or {found: False}.
+    """
+    name = (name or "").strip()
+    if not name:
+        return {"found": False}
+    with _wiki_lock:
+        if name in _wiki_cache:
+            return _wiki_cache[name]
+
+    if MOCK:
+        result = {
+            "found": True, "title": name, "description": "synthetic entry",
+            "extract": f"This is a synthetic Wikipedia-style summary for “{name}”, "
+                       f"shown in offline mock mode so the card layout can be tested "
+                       f"without network access.",
+            "url": "https://en.wikipedia.org/", "type": "standard",
+        }
+        with _wiki_lock:
+            _wiki_cache[name] = result
+        return result
+
+    headers = {"User-Agent": WIKI_UA, "Accept": "application/json"}
+    result = {"found": False}
+    try:
+        # 1) find the best-matching article title
+        sp = urllib.parse.urlencode(
+            {"action": "query", "list": "search", "srsearch": name,
+             "srlimit": "1", "format": "json"}
+        )
+        req = urllib.request.Request(f"https://en.wikipedia.org/w/api.php?{sp}", headers=headers)
+        with urllib.request.urlopen(req, timeout=min(TIMEOUT, 15)) as resp:
+            hits = json.loads(resp.read().decode("utf-8")).get("query", {}).get("search", [])
+        if not hits:
+            result = {"found": False}
+        else:
+            title = hits[0].get("title")
+            # 2) fetch the page summary (clean plain-text extract + canonical URL)
+            url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(title)}"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=min(TIMEOUT, 15)) as resp:
+                s = json.loads(resp.read().decode("utf-8"))
+            page = (((s.get("content_urls") or {}).get("desktop") or {}).get("page")
+                    or f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title)}")
+            result = {
+                "found": True,
+                "title": s.get("title") or title,
+                "description": s.get("description"),
+                "extract": s.get("extract") or "",
+                "url": page,
+                "type": s.get("type") or "standard",
+            }
+    except Exception as e:  # noqa: BLE001
+        result = {"found": False, "error": str(e)}
+
+    with _wiki_lock:
+        _wiki_cache[name] = result
     return result
 
 
@@ -284,6 +488,24 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if route == "/api/search":
+            qs = urllib.parse.parse_qs(parsed.query)
+            q = (qs.get("q") or [""])[0]
+            try:
+                self._send_json({"results": search_names(q)})
+            except Exception as e:  # noqa: BLE001
+                self._send_json({"error": str(e), "results": []}, 502)
+            return
+
+        if route == "/api/wiki":
+            qs = urllib.parse.parse_qs(parsed.query)
+            name = (qs.get("name") or [""])[0]
+            try:
+                self._send_json(wiki_summary(name))
+            except Exception as e:  # noqa: BLE001
+                self._send_json({"found": False, "error": str(e)}, 502)
+            return
+
         self.send_error(404, "Not found")
 
     def do_POST(self):
@@ -311,9 +533,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     httpd = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"GANDALF Explorer running at  http://localhost:{PORT}")
+    print(f"Mithrandir running at  http://localhost:{PORT}")
     print(f"  proxying TRAPI -> {GANDALF_BASE}")
+    print(f"  name search    -> {NAME_RESOLVER}")
     print(f"  subclass inference: {SUBCLASS}")
+    print(f"  force IPv4: {FORCE_IPV4}")
+    if MOCK:
+        print("  *** MOCK MODE — serving synthetic data, no network calls ***")
     print("  press Ctrl+C to stop")
     try:
         httpd.serve_forever()

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GANDALF Explorer — Translator knowledge graph</title>
+  <title>Mithrandir — Translator knowledge graph explorer</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -12,8 +12,8 @@
     <header class="topbar">
       <div class="topbar-row">
         <div class="brand">
-          <span class="mark"><span class="lit">◈</span> GANDALF</span>
-          <span class="sub">graph explorer</span>
+          <span class="mark"><span class="lit">◈</span> MITHRANDIR</span>
+          <span class="sub">translator graph explorer</span>
         </div>
         <span class="brand-spacer"></span>
         <button class="btn-ghost" id="newStart">New start node</button>
@@ -47,10 +47,11 @@
         into a connected node to keep going.
       </p>
 
-      <div class="field-label">Start from a CURIE</div>
-      <div class="curie-row">
-        <input class="curie-input" id="curieInput" placeholder="e.g. CHEBI:6801" autocomplete="off" spellcheck="false" />
-        <button class="btn-primary" id="curieGo">Explore</button>
+      <div class="field-label">Search for a start node</div>
+      <div class="search-wrap">
+        <input class="curie-input" id="searchInput" placeholder="Search by name, or paste a CURIE — e.g. metformin"
+               autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="acList" />
+        <div class="ac-list" id="acList" role="listbox" hidden></div>
       </div>
       <div class="curie-error" id="curieError"></div>
 

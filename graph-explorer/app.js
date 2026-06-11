@@ -61,8 +61,57 @@ const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const predLabel = (p) => String(p || '').replace(/^biolink:/, '').replace(/_/g, ' ');
 const catLabel = (c) => String(c || '').replace(/^biolink:/, '');
+
+// Biolink categories arrive as an unordered mix of specific classes and their
+// abstract ancestors/mixins. To group at the most granular level we rank by
+// rough hierarchy depth and keep the deepest. Abstract/mixin classes get low
+// ranks; concrete leaves get high ones. Unknown classes default to 26 — above
+// every abstract ancestor below, but below explicit leaves.
+const CAT_RANK = {
+  // roots / abstract / mixins
+  Entity: 1, NamedThing: 5, PhysicalEssenceOrOccurrent: 5, Occurrent: 6,
+  PhysicalEssence: 6, ThingWithTaxon: 6, SubjectOfInvestigation: 6,
+  Attribute: 8, OntologyClass: 8, InformationContentEntity: 8,
+  BiologicalEntity: 10, ChemicalEntityOrGeneOrGeneProduct: 12,
+  ChemicalEntityOrProteinOrPolypeptide: 12, ChemicalOrDrugOrTreatment: 12,
+  GenomicEntity: 14, MacromolecularMachineMixin: 14,
+  GeneOrGeneProduct: 16, DiseaseOrPhenotypicFeature: 16,
+  BiologicalProcessOrActivity: 16, PhysiologicalEntity: 16,
+  ChemicalEntity: 18, AnatomicalEntity: 18, OrganismTaxon: 20, MolecularEntity: 22,
+  ChemicalMixture: 22, MolecularMixture: 24, ComplexMolecularMixture: 24,
+  // concrete leaves
+  SmallMolecule: 30, Drug: 30, Food: 30, Disease: 30, PhenotypicFeature: 30,
+  ClinicalFinding: 30, Pathway: 30, BiologicalProcess: 30, MolecularActivity: 30,
+  PhysiologicalProcess: 30, Behavior: 30, Cell: 30, GrossAnatomicalStructure: 30,
+  Genotype: 30, Haplotype: 30, Treatment: 28, DrugExposure: 28, Procedure: 28,
+  ClinicalIntervention: 28, Device: 28, DiagnosticAid: 28,
+  BehavioralFeature: 32, CellularComponent: 32, SequenceVariant: 32,
+  MacromolecularComplex: 32, Gene: 34, GeneProduct: 34, Transcript: 34,
+  Polypeptide: 34, Snv: 34, Protein: 36, RNAProduct: 36, NoncodingRNAProduct: 38,
+  ProteinIsoform: 38, MicroRNA: 40, SiRNA: 40,
+};
+const catRank = (c) => {
+  const r = CAT_RANK[String(c).replace(/^biolink:/, '')];
+  return r == null ? 26 : r;
+};
+function primaryCategory(cats) {
+  if (!cats || !cats.length) return '__unknown__';
+  let best = cats[0], bestR = catRank(cats[0]);
+  for (const c of cats) {
+    const r = catRank(c);
+    if (r > bestR) { best = c; bestR = r; }
+  }
+  return best;
+}
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString());
 const arrow = (dir) => (dir === 'in' ? '←' : '→');
+function truncate(s, max) {
+  s = String(s || '');
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.]+$/, '') + '…';
+}
 
 // =========================================================================
 // Start screen
@@ -83,19 +132,99 @@ function buildExamples() {
 
 function validCurie(s) { return /^[A-Za-z0-9.\-]+:[A-Za-z0-9.\-_:]+$/.test(s); }
 
+let acResults = [];
+let acActive = -1;
+let acSeq = 0;          // guards against out-of-order responses
+let acDebounce = 0;
+
 function wireStart() {
-  const input = $('#curieInput');
+  const input = $('#searchInput');
+  const list = $('#acList');
   const err = $('#curieError');
-  const go = () => {
-    const v = input.value.trim();
-    if (!v) { err.textContent = 'Enter a CURIE to begin.'; return; }
-    if (!validCurie(v)) { err.textContent = 'That does not look like a CURIE (expected PREFIX:identifier).'; return; }
-    err.textContent = '';
-    startFrom(v, v, []);
+
+  const closeList = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); acActive = -1; };
+
+  const pick = (r) => { err.textContent = ''; closeList(); startFrom(r.curie, r.label || r.curie, r.types || []); };
+
+  const renderList = () => {
+    if (!acResults.length) { closeList(); return; }
+    list.innerHTML = '';
+    acResults.forEach((r, idx) => {
+      const item = el('button', `ac-item${idx === acActive ? ' ac-active' : ''}`);
+      item.setAttribute('role', 'option');
+      const type = (r.types && r.types[0]) ? catLabel(r.types[0]) : '';
+      item.innerHTML =
+        `<span class="ac-text">` +
+          `<span class="ac-label">${esc(r.label || r.curie)}</span>` +
+          `<span class="ac-id">${esc(r.curie)}</span>` +
+        `</span>` +
+        (type ? `<span class="ac-type">${esc(type)}</span>` : '');
+      item.addEventListener('mousedown', (e) => { e.preventDefault(); pick(r); });
+      item.addEventListener('mouseenter', () => { acActive = idx; highlight(); });
+      list.appendChild(item);
+    });
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
   };
-  $('#curieGo').addEventListener('click', go);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  $('#newStart').addEventListener('click', () => { overlay.hidden = false; input.value = ''; err.textContent = ''; input.focus(); });
+
+  const highlight = () => {
+    [...list.children].forEach((c, idx) => c.classList && c.classList.toggle('ac-active', idx === acActive));
+  };
+
+  const note = (html) => { list.innerHTML = `<div class="ac-note">${html}</div>`; list.hidden = false; };
+
+  const runSearch = async (q) => {
+    const seq = ++acSeq;
+    note(`<span class="spin"></span>searching…`);
+    try {
+      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const data = await r.json();
+      if (seq !== acSeq) return; // a newer keystroke superseded this one
+      acResults = (data && data.results) || [];
+      acActive = -1;
+      if (!acResults.length) {
+        note(validCurie(q)
+          ? `No name match. Press <b>Enter</b> to use “${esc(q)}” as a CURIE.`
+          : `No matches. ${data && data.error ? 'Name search is unreachable right now — you can still paste a CURIE.' : 'Try a different term, or paste a CURIE.'}`);
+      } else {
+        renderList();
+      }
+    } catch (e) {
+      if (seq !== acSeq) return;
+      note(`Name search failed. You can still paste a CURIE and press Enter.`);
+    }
+  };
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    err.textContent = '';
+    clearTimeout(acDebounce);
+    if (q.length < 2) { closeList(); return; }
+    acDebounce = setTimeout(() => runSearch(q), 220);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' && acResults.length) {
+      e.preventDefault(); acActive = (acActive + 1) % acResults.length; highlight();
+    } else if (e.key === 'ArrowUp' && acResults.length) {
+      e.preventDefault(); acActive = (acActive - 1 + acResults.length) % acResults.length; highlight();
+    } else if (e.key === 'Enter') {
+      const q = input.value.trim();
+      if (acActive >= 0 && acResults[acActive]) { pick(acResults[acActive]); }
+      else if (acResults.length === 1) { pick(acResults[0]); }
+      else if (validCurie(q)) { err.textContent = ''; closeList(); startFrom(q, q, []); }
+      else { err.textContent = 'Pick a result, or paste a CURIE (PREFIX:identifier).'; }
+    } else if (e.key === 'Escape') {
+      closeList();
+    }
+  });
+
+  input.addEventListener('blur', () => setTimeout(closeList, 150));
+
+  $('#newStart').addEventListener('click', () => {
+    overlay.hidden = false; input.value = ''; err.textContent = '';
+    acResults = []; acActive = -1; closeList(); input.focus();
+  });
 }
 
 // =========================================================================
@@ -120,8 +249,10 @@ function makeStep(curie, name, categories) {
     categories: categories || [],
     status: 'idle',        // idle | loading | loaded | error
     error: null,
-    groups: null,          // [{key,predicate,direction,count,neighbors,_rendered,_degreesLoaded,_maxDegree,_note}]
-    selectedKey: null,
+    groups: null,          // [{key,predicate,direction,count,neighbors,...}]
+    selectedKey: null,     // expanded predicate group
+    selectedNeighborId: null, // the neighbour clicked to advance (persists)
+    wiki: { status: 'idle' }, // about-card lookup state
   };
 }
 
@@ -172,12 +303,14 @@ function applyExpand(step, data) {
 function finishLoad(i) {
   updatePanelNode(i);
   updatePanelPreds(i);
+  loadWiki(i);
   if (i === current) drawConnectors(i);
 }
 
 function selectPredicate(i, key) {
   const step = path[i];
   if (!step || !step.groups) return;
+  if (step.selectedKey !== key) step.selectedNeighborId = null;
   step.selectedKey = key;
   // truncate any forward path that was built from a different choice
   if (i < path.length - 1) {
@@ -192,6 +325,8 @@ function selectPredicate(i, key) {
 function stepInto(i, neighbor) {
   // record forward path; if diverging, truncate
   truncatePathTo(i);
+  path[i].selectedNeighborId = neighbor.id; // persists the connector + highlight
+  updatePanelNeighbors(i);                  // re-mark the chosen node on the source panel
   const next = makeStep(neighbor.id, neighbor.name, neighbor.categories);
   path.push(next);
   reconcilePanels();
@@ -256,6 +391,7 @@ async function loadDegrees(i, key) {
 
   // re-render the list from the top in sorted order
   group._rendered = 0;
+  group._catState = null; // re-default the type accordion against the new order
   if (step.selectedKey === key) {
     updatePanelNeighbors(i);
     if (i === current) drawConnectors(i);
@@ -303,7 +439,6 @@ function buildPanelSkeleton(i) {
   predScroll.addEventListener('scroll', () => { if (i === current) drawConnectors(i); }, { passive: true });
   nbScroll.addEventListener('scroll', () => {
     if (i === current) drawConnectors(i);
-    maybeLoadMoreNeighbors(i, nbScroll);
   }, { passive: true });
   return panel;
 }
@@ -329,9 +464,77 @@ function updatePanelNode(i) {
       `<div class="nc-eyebrow">${i === 0 ? 'Start node' : `Step ${i + 1}`}</div>` +
       `<div class="nc-name">${esc(step.name)}</div>` +
       `<div class="nc-id">${esc(step.curie)}</div>` +
+      `<a class="nc-source" href="https://bioregistry.io/${encodeURIComponent(step.curie)}" target="_blank" rel="noopener">Source record ↗</a>` +
       `<div class="cats">${cats}</div>` +
       meta +
-    `</div>`;
+    `</div>` +
+    `<div class="wiki-card" data-role="wiki"></div>`;
+  updatePanelWiki(i);
+}
+
+function updatePanelWiki(i) {
+  const panel = panelEls[i]; if (!panel) return;
+  const step = path[i];
+  const host = panel.querySelector('[data-role="wiki"]');
+  if (!host) return;
+  const w = step.wiki || { status: 'idle' };
+
+  if (w.status === 'idle' || w.status === 'loading') {
+    host.innerHTML =
+      `<div class="wiki-head">About</div>` +
+      `<div class="wiki-loading"><span class="spin"></span> Looking up Wikipedia…</div>`;
+    return;
+  }
+  if (w.status === 'none' || w.status === 'error') {
+    host.innerHTML =
+      `<div class="wiki-head">About</div>` +
+      `<div class="wiki-miss">${w.status === 'error'
+        ? 'Wikipedia lookup unavailable.'
+        : 'No Wikipedia match by name. Use the source record above.'}</div>`;
+    return;
+  }
+  // loaded
+  const d = w.data || {};
+  const ambiguous = d.type === 'disambiguation';
+  const extract = truncate(d.extract || '', 240);
+  host.innerHTML =
+    `<div class="wiki-head">About <span class="wiki-src">· Wikipedia</span></div>` +
+    (d.description ? `<div class="wiki-desc">${esc(d.description)}</div>` : '') +
+    (ambiguous ? `<div class="wiki-warn">Ambiguous title — verify this matches the node.</div>` : '') +
+    (extract ? `<div class="wiki-extract">${esc(extract)}</div>` : '') +
+    `<a class="wiki-link" href="${esc(d.url || '#')}" target="_blank" rel="noopener">Read on Wikipedia ↗</a>`;
+}
+
+const wikiCache = new Map(); // name -> result
+
+async function loadWiki(i) {
+  const step = path[i];
+  if (!step) return;
+  if (step.wiki && step.wiki.status !== 'idle') return;
+  const name = (step.name || '').trim();
+  // a bare CURIE isn't a useful search term
+  if (!name || name === step.curie || validCurie(name)) {
+    step.wiki = { status: 'none' };
+    updatePanelWiki(i);
+    return;
+  }
+  if (wikiCache.has(name)) {
+    const r = wikiCache.get(name);
+    step.wiki = r.found ? { status: 'loaded', data: r } : { status: 'none' };
+    updatePanelWiki(i);
+    return;
+  }
+  step.wiki = { status: 'loading' };
+  updatePanelWiki(i);
+  try {
+    const r = await fetch(`/api/wiki?name=${encodeURIComponent(name)}`);
+    const data = await r.json();
+    wikiCache.set(name, data);
+    step.wiki = data && data.found ? { status: 'loaded', data } : { status: 'none' };
+  } catch (e) {
+    step.wiki = { status: 'error' };
+  }
+  updatePanelWiki(i);
 }
 
 function updatePanelPreds(i) {
@@ -340,7 +543,8 @@ function updatePanelPreds(i) {
   const host = panel.querySelector('[data-role="pred"]');
 
   if (step.status === 'loading' || step.status === 'idle') {
-    host.innerHTML = `<div class="loading-block"><span class="spin"></span> Querying TRAPI for neighbours…</div>`;
+    host.innerHTML = helixLoaderMarkup();
+    startHelixLoader();
     return;
   }
   if (step.status === 'error') {
@@ -423,62 +627,206 @@ function updatePanelNeighbors(i) {
     return;
   }
 
-  host.innerHTML = '';
-  const list = el('div', 'nb-list');
-  list.dataset.role = 'nblist';
-  host.appendChild(list);
-  group._rendered = 0;
-  appendNeighborChunk(i, list, group);
+  // partition neighbours by primary node type, preserving (degree-sorted) order
+  const cats = buildCategories(group);
+  group._cats = cats;
+  if (!group._catState) group._catState = {};
+  for (const c of cats) {
+    if (group._catState[c.cat] === undefined) {
+      group._catState[c.cat] = { expanded: false, rendered: 0 };
+    }
+  }
+  // default expansion: the chosen node's type, else the largest type
+  const chosenCat = chosenCategory(group, step.selectedNeighborId);
+  const anyOpen = cats.some((c) => group._catState[c.cat].expanded);
+  if (!anyOpen) {
+    const want = chosenCat || (cats[0] && cats[0].cat);
+    if (want) group._catState[want].expanded = true;
+  }
+  if (chosenCat) group._catState[chosenCat].expanded = true;
 
-  const sentinel = el('div', 'sentinel');
-  host.appendChild(sentinel);
+  host.innerHTML = '';
+  const acc = el('div', 'cat-acc');
+  for (const c of cats) {
+    const st = group._catState[c.cat];
+    const head = el('button', `cat-head${st.expanded ? ' is-open' : ''}`);
+    head.innerHTML =
+      `<span class="ch-twist">▸</span>` +
+      `<span class="ch-label">${esc(c.label)}</span>` +
+      `<span class="ch-count">${fmt(c.nodes.length)}</span>`;
+    const body = el('div', 'cat-nodes');
+    if (!st.expanded) body.style.display = 'none';
+    c._body = body;
+    head.addEventListener('click', () => {
+      st.expanded = !st.expanded;
+      head.classList.toggle('is-open', st.expanded);
+      body.style.display = st.expanded ? '' : 'none';
+      if (st.expanded && st.rendered === 0) renderCatChunk(i, group, c, body);
+      drawConnectors(i);
+    });
+    acc.appendChild(head);
+    acc.appendChild(body);
+    if (st.expanded) { st.rendered = 0; renderCatChunk(i, group, c, body); }
+  }
+  host.appendChild(acc);
 
   if (group.count > DEGREE_CAP && group._degreesLoaded) {
     host.appendChild(el('div', 'muted-hint',
-      `Only the first ${DEGREE_CAP.toLocaleString()} of ${group.count.toLocaleString()} nodes are degree-ranked. ` +
-      `Narrow the path or pick a more specific relationship to see the rest.`));
+      `Degree ranking covers the first ${DEGREE_CAP.toLocaleString()} of ${group.count.toLocaleString()} nodes ` +
+      `via this relationship; the rest follow unranked.`));
+  }
+
+  if (step.selectedNeighborId) ensureChosenVisible(i, group);
+}
+
+function buildCategories(group) {
+  const map = new Map();
+  for (const n of group.neighbors) {
+    const key = primaryCategory(n.categories);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(n);
+  }
+  const arr = [...map.entries()].map(([cat, nodes]) => ({
+    cat,
+    label: cat === '__unknown__' ? 'Other / untyped' : catLabel(cat),
+    nodes,
+  }));
+  arr.sort((a, b) => b.nodes.length - a.nodes.length || a.label.localeCompare(b.label));
+  return arr;
+}
+
+function chosenCategory(group, id) {
+  if (!id) return null;
+  const n = group.neighbors.find((x) => x.id === id);
+  if (!n) return null;
+  return primaryCategory(n.categories);
+}
+
+function nbItem(i, group, n) {
+  const step = path[i];
+  const item = el('button', `nb-item${n.id === step.selectedNeighborId ? ' is-chosen' : ''}`);
+  item.dataset.nid = n.id;
+  let deg;
+  if (n.degree === undefined) {
+    deg = `<span class="deg-val unknown">·</span>`;
+  } else if (n.degree == null) {
+    deg = `<span class="deg-val unknown">n/a</span>`;
+  } else {
+    const pct = group._maxDegree ? Math.max(4, Math.round((n.degree / group._maxDegree) * 100)) : 0;
+    deg = `<span class="deg-val">${fmt(n.degree)}</span>` +
+          `<span class="deg-bar"><i style="width:${pct}%"></i></span>`;
+  }
+  item.innerHTML =
+    `<span class="nb-text">` +
+      `<span class="nb-name">${esc(n.name || n.id)}</span>` +
+      `<span class="nb-id">${esc(n.id)}</span>` +
+    `</span>` +
+    `<span class="nb-degree" title="node degree">${deg}</span>` +
+    `<span class="nb-go">›</span>`;
+  item.addEventListener('click', () => stepInto(i, n));
+  return item;
+}
+
+function renderCatChunk(i, group, c, body) {
+  const st = group._catState[c.cat];
+  const oldMore = body.querySelector('.show-more');
+  if (oldMore) oldMore.remove();
+  const end = Math.min(st.rendered + CHUNK, c.nodes.length);
+  for (let k = st.rendered; k < end; k++) body.appendChild(nbItem(i, group, c.nodes[k]));
+  st.rendered = end;
+  const remaining = c.nodes.length - st.rendered;
+  if (remaining > 0) {
+    const more = el('button', 'show-more',
+      `Show ${Math.min(CHUNK, remaining)} more · ${fmt(remaining)} left`);
+    more.addEventListener('click', () => { renderCatChunk(i, group, c, body); drawConnectors(i); });
+    body.appendChild(more);
   }
 }
 
-function appendNeighborChunk(i, list, group) {
-  const step = path[i];
-  const end = Math.min(group._rendered + CHUNK, group.neighbors.length);
-  for (let k = group._rendered; k < end; k++) {
-    const n = group.neighbors[k];
-    const item = el('button', 'nb-item');
-    const cat = (n.categories && n.categories[0]) ? catLabel(n.categories[0]) : '';
-    let deg;
-    if (n.degree === undefined) {
-      deg = `<span class="deg-val unknown">·</span>`;
-    } else if (n.degree == null) {
-      deg = `<span class="deg-val unknown">n/a</span>`;
-    } else {
-      const pct = group._maxDegree ? Math.max(4, Math.round((n.degree / group._maxDegree) * 100)) : 0;
-      deg = `<span class="deg-val">${fmt(n.degree)}</span>` +
-            `<span class="deg-bar"><i style="width:${pct}%"></i></span>`;
-    }
-    item.innerHTML =
-      `<span class="nb-text">` +
-        `<span class="nb-name">${esc(n.name || n.id)}</span>` +
-        `<span class="nb-id">${esc(n.id)}${cat ? ' · ' + esc(cat) : ''}</span>` +
-      `</span>` +
-      `<span class="nb-degree" title="node degree">${deg}</span>` +
-      `<span class="nb-go">›</span>`;
-    item.addEventListener('click', () => stepInto(i, n));
-    list.appendChild(item);
+function ensureChosenVisible(i, group) {
+  const id = path[i].selectedNeighborId;
+  if (!id || !group._cats) return;
+  let cat = null, idx = -1;
+  for (const c of group._cats) {
+    const k = c.nodes.findIndex((n) => n.id === id);
+    if (k >= 0) { cat = c; idx = k; break; }
   }
-  group._rendered = end;
+  if (!cat || !cat._body) return;
+  const st = group._catState[cat.cat];
+  st.expanded = true;
+  cat._body.style.display = '';
+  const head = cat._body.previousElementSibling;
+  if (head) head.classList.add('is-open');
+  while (st.rendered <= idx && st.rendered < cat.nodes.length) renderCatChunk(i, group, cat, cat._body);
+  const elc = cat._body.querySelector(`.nb-item[data-nid="${id.replace(/"/g, '\\"')}"]`);
+  if (elc) elc.scrollIntoView({ block: 'nearest' });
 }
 
-function maybeLoadMoreNeighbors(i, nbScroll) {
-  const step = path[i];
-  if (!step.selectedKey) return;
-  const group = step.groups && step.groups.find((g) => g.key === step.selectedKey);
-  if (!group || group._rendered >= group.neighbors.length) return;
-  if (nbScroll.scrollTop + nbScroll.clientHeight >= nbScroll.scrollHeight - 240) {
-    const list = nbScroll.querySelector('[data-role="nblist"]');
-    if (list) appendNeighborChunk(i, list, group);
+// =========================================================================
+// DNA helix loader (shown in the relationships column while TRAPI responds)
+// =========================================================================
+function prefersReducedMotion() {
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function helixLoaderMarkup() {
+  if (prefersReducedMotion()) {
+    return `<div class="loading-block"><span class="spin"></span> Querying TRAPI for neighbours…</div>`;
   }
+  const N = 16, H = 230, marginY = 20, step = (H - 2 * marginY) / (N - 1);
+  let rungs = '';
+  for (let i = 0; i < N; i++) {
+    const y = (marginY + i * step).toFixed(1);
+    rungs +=
+      `<g class="rung" data-y="${y}" data-i="${i}">` +
+      `<line class="bond" x1="120" y1="${y}" x2="120" y2="${y}"/>` +
+      `<circle class="s2" cx="120" cy="${y}" r="3"/>` +
+      `<circle class="s1" cx="120" cy="${y}" r="3"/>` +
+      `</g>`;
+  }
+  return (
+    `<div class="helix-loader">` +
+      `<svg class="helix-svg" viewBox="0 0 240 ${H}" data-amp="78" data-cx="120" aria-hidden="true">${rungs}</svg>` +
+      `<div class="helix-caption">Querying TRAPI<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>` +
+      `<div class="helix-sub">tracing neighbours along every relationship</div>` +
+    `</div>`
+  );
+}
+
+let helixRaf = 0;
+function startHelixLoader() {
+  if (helixRaf) return;
+  const tick = (t) => {
+    const svgs = document.querySelectorAll('svg.helix-svg');
+    if (!svgs.length) { helixRaf = 0; return; }     // self-stops when loaders are gone
+    svgs.forEach((svg) => updateHelix(svg, t));
+    helixRaf = requestAnimationFrame(tick);
+  };
+  helixRaf = requestAnimationFrame(tick);
+}
+
+function updateHelix(svg, t) {
+  const A = +svg.dataset.amp;
+  const cx = +svg.dataset.cx;
+  const tt = t * 0.0024;
+  svg.querySelectorAll('.rung').forEach((g) => {
+    const i = +g.dataset.i;
+    const phase = i * 0.55 + tt;
+    const s = Math.sin(phase), c = Math.cos(phase);
+    const xL = cx + A * s, xR = cx - A * s;
+    const s1 = g.querySelector('.s1'); // teal strand, depth = c
+    const s2 = g.querySelector('.s2'); // coral strand, depth = -c
+    const bond = g.querySelector('.bond');
+    s1.setAttribute('cx', xL.toFixed(2));
+    s1.setAttribute('r', (3.0 + 2.0 * ((c + 1) / 2)).toFixed(2));
+    s1.setAttribute('opacity', (0.35 + 0.65 * ((c + 1) / 2)).toFixed(2));
+    s2.setAttribute('cx', xR.toFixed(2));
+    s2.setAttribute('r', (3.0 + 2.0 * ((-c + 1) / 2)).toFixed(2));
+    s2.setAttribute('opacity', (0.35 + 0.65 * ((-c + 1) / 2)).toFixed(2));
+    bond.setAttribute('x1', xL.toFixed(2));
+    bond.setAttribute('x2', xR.toFixed(2));
+    bond.setAttribute('opacity', (0.12 + 0.32 * Math.abs(s)).toFixed(2));
+  });
 }
 
 // =========================================================================
@@ -586,21 +934,38 @@ function paintConnectors(i) {
     svg.appendChild(curve(x1, y1, x2, y2, dir, selected ? 0.95 : 0.4, selected ? 2 : 1.25));
   });
 
-  // selected predicate → neighbour list
+  // selected predicate → the chosen node (or the top of the list if none yet)
   const sel = panel.querySelector('.pred-pill.is-selected');
-  const nbList = panel.querySelector('[data-role="nblist"]');
   const nbCol = panel.querySelector('.col-nb');
   if (sel && nbCol) {
-    const sr = sel.getBoundingClientRect();
-    const target = nbList && nbList.firstChild ? nbList.firstChild : nbCol;
-    const tr = target.getBoundingClientRect();
+    const step = path[i];
     const nbRect = nbCol.getBoundingClientRect();
+    const sr = sel.getBoundingClientRect();
     const sx = sr.right - pr.left;
     const sy = sr.top - pr.top + sr.height / 2;
     const tx = nbRect.left - pr.left;
-    const ty = Math.min(Math.max(tr.top - pr.top + 16, sy - 60), sy + 60);
-    svg.appendChild(curve(sx, sy, tx, ty, sel.dataset.dir, 0.85, 2));
+
+    let chosenEl = null;
+    if (step.selectedNeighborId) {
+      chosenEl = panel.querySelector(`.nb-item[data-nid="${step.selectedNeighborId.replace(/"/g, '\\"')}"]`);
+    }
+    const target = chosenEl || (nbCol.querySelector('.nb-item') || nbCol.querySelector('.cat-acc') || nbCol);
+    const tr = target.getBoundingClientRect();
+    // clamp the endpoint to the visible neighbour viewport so the link stays sensible while scrolled
+    const top = nbRect.top - pr.top + 14;
+    const bot = nbRect.bottom - pr.top - 14;
+    const ty = Math.min(Math.max(tr.top - pr.top + tr.height / 2, top), bot);
+    const linked = !!chosenEl;
+    svg.appendChild(curve(sx, sy, tx, ty, sel.dataset.dir, linked ? 0.95 : 0.7, linked ? 2.25 : 1.75));
+    if (linked) svg.appendChild(endDot(tx, ty, sel.dataset.dir));
   }
+}
+
+function endDot(x, y, dir) {
+  const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', '3.5');
+  c.setAttribute('fill', dir === 'in' ? 'var(--in)' : 'var(--out)');
+  return c;
 }
 
 function curve(x1, y1, x2, y2, dir, opacity, width) {
@@ -664,7 +1029,7 @@ function init() {
   });
   pathEl.addEventListener('scroll', () => positionTripleFrame(), { passive: true });
 
-  $('#curieInput').focus();
+  $('#searchInput').focus();
 }
 
 document.addEventListener('DOMContentLoaded', init);

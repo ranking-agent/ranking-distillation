@@ -603,3 +603,181 @@ button { font-family: inherit; cursor: pointer; }
   .track, .triple-frame, .pred-pill, .nb-item, .crumb-node { transition: none !important; }
   .spin { animation: none; }
 }
+
+/* === autocomplete search (start screen) ================================== */
+.search-wrap { position: relative; }
+.ac-list {
+  position: absolute;
+  left: 0; right: 0; top: calc(100% + 6px);
+  z-index: 10;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 5px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.ac-list[hidden] { display: none; }
+.ac-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+}
+.ac-item:hover, .ac-item.ac-active {
+  background: var(--surface-3);
+  border-color: var(--out-dim);
+}
+.ac-item .ac-text { flex: 1 1 auto; min-width: 0; }
+.ac-item .ac-label { font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-item .ac-id { font-family: var(--font-mono); font-size: 10.5px; color: var(--out); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-item .ac-type {
+  flex: 0 0 auto;
+  font-size: 10px; color: var(--muted-2);
+  text-transform: uppercase; letter-spacing: .06em;
+  border: 1px solid var(--line); border-radius: 12px; padding: 2px 8px;
+  background: var(--bg);
+}
+.ac-note { padding: 10px 12px; font-size: 12px; color: var(--muted-2); }
+.ac-note .spin {
+  display: inline-block; width: 9px; height: 9px; margin-right: 6px;
+  border: 1.5px solid var(--line); border-top-color: var(--out);
+  border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -1px;
+}
+
+/* === connected-node type accordion ====================================== */
+.cat-acc { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.cat-head {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 9px 11px; color: var(--text);
+  transition: border-color .15s, background .15s;
+}
+.cat-head:hover { border-color: var(--out-dim); }
+.cat-head.is-open { background: var(--surface-3); border-color: var(--out-dim); }
+.cat-head .ch-twist { flex: 0 0 auto; color: var(--muted-2); font-size: 11px; transition: transform .18s; }
+.cat-head.is-open .ch-twist { transform: rotate(90deg); color: var(--out); }
+.cat-head .ch-label {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--font-display); font-weight: 500; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cat-head .ch-count {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 13px; padding: 2px 9px; min-width: 32px; text-align: center;
+}
+.cat-nodes { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px 10px; border-left: 1px solid var(--line-soft); margin-left: 5px; }
+.show-more {
+  align-self: flex-start; margin-top: 2px;
+  background: transparent; border: 1px dashed var(--line); color: var(--muted);
+  border-radius: 6px; padding: 6px 11px; font-size: 11.5px; font-family: var(--font-mono);
+  transition: border-color .15s, color .15s;
+}
+.show-more:hover { border-color: var(--out-dim); color: var(--text); }
+
+/* chosen node — persistent highlight after stepping in */
+.nb-item.is-chosen {
+  border-color: var(--out);
+  background: rgba(58,214,181,.12);
+  box-shadow: 0 0 0 1px var(--out) inset, 0 0 14px rgba(58,214,181,.14);
+}
+.nb-item.is-chosen .nb-go { color: var(--out); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-head .ch-twist, .ac-item { transition: none !important; }
+}
+
+/* === DNA helix loader ==================================================== */
+.helix-loader {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 26px 10px 18px; gap: 12px;
+  animation: helix-fade .35s ease both;
+}
+@keyframes helix-fade { from { opacity: 0; } to { opacity: 1; } }
+.helix-svg { width: 190px; height: auto; overflow: visible; }
+.helix-svg .s1 { fill: var(--out); filter: drop-shadow(0 0 4px var(--out)); }
+.helix-svg .s2 { fill: var(--in);  filter: drop-shadow(0 0 4px var(--in)); }
+.helix-svg .bond { stroke: var(--muted-2); stroke-width: 2; stroke-linecap: round; }
+.helix-caption {
+  font-family: var(--font-display); font-weight: 500; font-size: 13.5px; color: var(--text);
+  letter-spacing: .01em;
+}
+.helix-caption .dots i {
+  display: inline-block; animation: helix-bounce 1.1s infinite ease-in-out;
+}
+.helix-caption .dots i:nth-child(2) { animation-delay: .15s; }
+.helix-caption .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes helix-bounce { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.helix-sub {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-2);
+  letter-spacing: .04em; max-width: 220px; line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .helix-caption .dots i, .helix-loader { animation: none; }
+}
+
+/* === source link + Wikipedia "About" card =============================== */
+.nc-source {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--muted-2);
+  margin: 2px 0 12px;
+  transition: color .15s, border-color .15s;
+}
+.nc-source:hover { color: var(--out); border-color: var(--out); }
+
+.wiki-card {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 13px 14px;
+}
+.wiki-head {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin-bottom: 8px;
+}
+.wiki-head .wiki-src { color: var(--muted-2); letter-spacing: .08em; }
+.wiki-loading { font-size: 12px; color: var(--muted); }
+.wiki-loading .spin {
+  display: inline-block; width: 9px; height: 9px; margin-right: 6px;
+  border: 1.5px solid var(--line); border-top-color: var(--out);
+  border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -1px;
+}
+.wiki-miss { font-size: 12px; color: var(--muted-2); line-height: 1.5; }
+.wiki-desc {
+  font-size: 11px; color: var(--muted); text-transform: capitalize;
+  margin-bottom: 7px; letter-spacing: .01em;
+}
+.wiki-warn {
+  font-size: 10.5px; color: var(--in);
+  border-left: 2px solid var(--in-dim); padding-left: 8px; margin-bottom: 7px; line-height: 1.45;
+}
+.wiki-extract {
+  font-size: 12.5px; line-height: 1.55; color: var(--text);
+  margin-bottom: 10px;
+}
+.wiki-link {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--out); text-decoration: none;
+  border-bottom: 1px solid var(--out-dim); transition: border-color .15s;
+}
+.wiki-link:hover { border-color: var(--out); }

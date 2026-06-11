@@ -1,15 +1,15 @@
-# GANDALF Explorer
+# Mithrandir
 
 A prototype GUI for walking the NIH Translator knowledge graph one triple at a
 time, via the GANDALF TRAPI endpoint at RENCI (`https://gandalf.renci.org`).
 
-Pick a starting node → see its neighbours grouped by relationship (predicate +
-direction) as connectors fanning out to the right → click a relationship to list
-the nodes reached through it (ranked by node degree) → click a node to step into
-it. The chosen node becomes the root of the next triple; the path you build is
-shown in the filmstrip up top, with a frame around the triple you're viewing.
-Use **‹ Back / Forward ›** (or the arrow keys, or click any node in the
-filmstrip) to swipe along the path.
+Search for a starting node → see its neighbours grouped by relationship
+(predicate + direction) as connectors fanning out to the right → open a
+relationship to list the connected nodes, **grouped by node type** and ranked by
+degree → click a node to step into it. The chosen node becomes the root of the
+next triple; the path you build shows in the filmstrip up top with a frame
+around the triple you're viewing. **‹ Back / Forward ›**, the arrow keys, or a
+click on any node in the filmstrip swipes you along the path.
 
 ## Run it
 
@@ -17,53 +17,61 @@ No dependencies — just Python 3.8+.
 
 ```bash
 cd gandalf-explorer
-python3 server.py
+python3 server.py            # then open http://localhost:8000
 ```
 
-Then open <http://localhost:8000>.
+### Can't reach RENCI? Try mock mode first
 
-The tiny `server.py` proxies the TRAPI calls (avoids CORS) and fans out the
-node-degree lookups concurrently. Configuration is via environment variables:
+If the live endpoint is unreachable from your network, run the UI against
+built-in synthetic data so you can confirm the app itself works:
+
+```bash
+GANDALF_MOCK=1 python3 server.py
+```
+
+Search "metformin" / "diabetes" / "TP53", pick a result, and explore — no
+network calls are made.
+
+## Configuration (environment variables)
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GANDALF_PORT` | `8000` | local port |
-| `GANDALF_BASE` | `https://gandalf.renci.org` | TRAPI server to query |
-| `GANDALF_SUBCLASS` | `false` | enable biolink subclass inference on lookups |
+| `GANDALF_BASE` | `https://gandalf.renci.org` | TRAPI server |
+| `GANDALF_NAME_RESOLVER` | `https://name-resolution-sri.renci.org` | name→CURIE search |
+| `GANDALF_SUBCLASS` | `false` | biolink subclass inference on lookups |
+| `GANDALF_IPV4` | `true` | force IPv4 (works around IPv6 handshake hangs) |
 | `GANDALF_TIMEOUT` | `60` | per-request timeout (seconds) |
 | `GANDALF_DEGREE_WORKERS` | `8` | concurrent `/node_degree` lookups |
+| `GANDALF_MOCK` | `false` | serve synthetic data, no network calls |
 
-## How the queries work
+## How it works
 
-For a node `X`, the backend issues two predicate-agnostic one-hop TRAPI queries
-to `/query`:
-
-- **outgoing:** `X --?--> n1`
-- **incoming:** `n1 --?--> X`
-
-Edges come back in `message.knowledge_graph`. They're grouped by
-`(predicate, direction)`; each group's neighbour count and node list are sent to
-the browser. When you open a relationship, the browser asks the backend for the
-neighbours' degrees (`GET /node_degree/{curie}`, cached + parallel) and sorts the
-list descending.
+- **Start search** → `/api/search` proxies the SRI Name Resolver autocomplete;
+  pick a result, or paste a CURIE and press Enter.
+- **Neighbours** → for node `X` the backend runs two predicate-agnostic one-hop
+  TRAPI queries (`X --?--> n1` and `n1 --?--> X`, since edges are directed),
+  reads `message.knowledge_graph`, and groups edges by `(predicate, direction)`.
+  Predicate groups are sorted by neighbour count.
+- **Connected nodes** → partitioned by primary node type into expandable groups
+  (sorted by group size); inside each, nodes are ranked by node degree
+  (`/node_degree`, cached + parallel). The largest group (or the group holding
+  your previously chosen node) opens by default.
+- **Chosen node** → clicking a node records it on the source step; that node
+  stays highlighted and the relationship connector links to it whenever you
+  swipe back to that triple.
 
 ## Known limitations (it's a prototype)
 
-- **Degree ranking is sampled.** A relationship can have thousands of neighbours;
-  fetching a degree per node is one request each. The client degree-ranks the
-  first `DEGREE_CAP` (300) of a relationship and labels the list accordingly. So
-  the *true* highest-degree nodes of a huge hub may not all surface — the status
-  line above each list is honest about this. A production version would push
-  degree-sorting server-side (or have the KP return degrees in the lookup).
-- **No name search.** Starting nodes are a curated example list plus a CURIE
-  box. Real name→CURIE resolution would need the Translator Name Resolver /
-  Node Normalizer (separate services, not in this KP's spec).
-- **Two queries per node.** Direction matters in TRAPI, so neighbours are
-  fetched once per direction. Results are cached for the session.
-- `subclass` inference is **off** by default so each step shows that exact
-  node's literal edges; flip `GANDALF_SUBCLASS=true` to include subclasses.
+- **Degree ranking is sampled.** A relationship can have thousands of
+  neighbours; fetching a degree is one request per node. The client ranks the
+  first `DEGREE_CAP` (300) per relationship and labels the list accordingly.
+- **Primary type only.** Nodes are grouped by their first biolink category.
+- `subclass` inference is off by default so each step shows that node's literal
+  edges; set `GANDALF_IPV4`/`GANDALF_SUBCLASS` as needed.
 
 ## Files
 
-- `server.py` — stdlib proxy + static server
+- `server.py` — dependency-free proxy + static server (with mock mode)
 - `index.html`, `style.css`, `app.js` — the frontend
+- `test_harness.mjs` — optional headless logic test (`npm install jsdom` first, then `node test_harness.mjs`)
