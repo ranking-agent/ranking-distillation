@@ -41,7 +41,7 @@ GANDALF_BASE = os.environ.get("GANDALF_BASE", "https://gandalf.renci.org").rstri
 NAME_RESOLVER = os.environ.get(
     "GANDALF_NAME_RESOLVER", "https://name-resolution-sri.renci.org"
 ).rstrip("/")
-PORT = int(os.environ.get("GANDALF_PORT", "8000"))
+PORT = int(os.environ.get("GANDALF_PORT", "8001"))
 SUBCLASS = os.environ.get("GANDALF_SUBCLASS", "false").lower() in ("1", "true", "yes")
 TIMEOUT = float(os.environ.get("GANDALF_TIMEOUT", "60"))
 DEGREE_WORKERS = int(os.environ.get("GANDALF_DEGREE_WORKERS", "8"))
